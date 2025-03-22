@@ -1,9 +1,7 @@
 import { FormProvider, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-
-import { Interview } from "@/types";
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@clerk/clerk-react";
 import { CustomBreadCrumb } from "@/components/custom-bread-crumb";
@@ -30,21 +28,44 @@ import {
 } from "firebase/firestore";
 import { db } from "@/config/firebase.config";
 import { toast } from "sonner";
+import { Interview } from "@/types";
 
 interface FormMockInterview {
   initialData: Interview | null;
 }
 
+interface CandidateProfile {
+  position: string;
+  experience: number;
+  techStack: string;
+  description: string;
+  education: string;
+  latestCompany: string;
+  projects: string;
+}
+
 const formSchema = z.object({
-  position: z
+  // Job Requirements
+  jobPosition: z
     .string()
     .min(1, "Position is required")
     .max(100, "Position must be 100 characters or less"),
-  description: z.string().min(10, "Description is required"),
-  experience: z.coerce
+  jobDescription: z.string().min(10, "Description is required"),
+  requiredExperience: z.coerce
     .number()
     .min(0, "Experience cannot be empty or negative"),
-  techStack: z.string().min(1, "Tech stack must be at least a character"),
+  requiredTechStack: z.string().min(1, "Tech stack must be at least a character"),
+  
+  // Candidate Profile
+  candidateProfile: z.object({
+    position: z.string().min(1, "Current position is required"),
+    experience: z.coerce.number().min(0, "Experience cannot be negative"),
+    techStack: z.string().min(1, "Tech stack is required"),
+    description: z.string().min(10, "Description is required"),
+    education: z.string().min(1, "Education details are required"),
+    latestCompany: z.string().min(1, "Latest company is required"),
+    projects: z.string().min(10, "Project details are required"),
+  }),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -52,7 +73,21 @@ type FormData = z.infer<typeof formSchema>;
 export const FormMockInterview = ({ initialData }: FormMockInterview) => {
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
-    defaultValues: initialData || {},
+    defaultValues: {
+      jobPosition: initialData?.position || '',
+      jobDescription: initialData?.description || '',
+      requiredExperience: initialData?.experience || 0,
+      requiredTechStack: initialData?.techStack || '',
+      candidateProfile: {
+        position: '',
+        experience: 0,
+        techStack: '',
+        description: '',
+        education: '',
+        latestCompany: '',
+        projects: '',
+      },
+    },
   });
 
   const { isValid, isSubmitting } = form.formState;
@@ -71,21 +106,14 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
     : { title: "Created..!", description: "New Mock Interview created..." };
 
   const cleanJsonResponse = (responseText: string) => {
-    // Step 1: Trim any surrounding whitespace
     let cleanText = responseText.trim();
-
-    // Step 2: Remove any occurrences of "json" or code block symbols (``` or `)
     cleanText = cleanText.replace(/(json|```|`)/g, "");
-
-    // Step 3: Extract a JSON array by capturing text between square brackets
     const jsonArrayMatch = cleanText.match(/\[.*\]/s);
     if (jsonArrayMatch) {
       cleanText = jsonArrayMatch[0];
     } else {
       throw new Error("No JSON array found in response");
     }
-
-    // Step 4: Parse the clean JSON text into an array of objects
     try {
       return JSON.parse(cleanText);
     } catch (error) {
@@ -95,21 +123,52 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
 
   const generateAiResult = async (data: FormData) => {
     const prompt = `
-            As an experienced prompt engineer, generate a JSON array containing 5 technical interview questions along with detailed answers based on the following job information. Each object in the array should have the fields "question" and "answer", formatted as follows:
+      As an experienced prompt engineer, generate a JSON array containing 10 interview questions along with detailed answers based on the following information. The questions should be a mix of technical and behavioral questions.
 
-            [
-              { "question": "<Question text>", "answer": "<Answer text>" },
-              ...
-            ]
+      Job Requirements:
+      - Job Position: ${data?.jobPosition}
+      - Job Description: ${data?.jobDescription}
+      - Years of Experience Required: ${data?.requiredExperience}
+      - Required Tech Stacks: ${data?.requiredTechStack}
 
-            Job Information:
-            - Job Position: ${data?.position}
-            - Job Description: ${data?.description}
-            - Years of Experience Required: ${data?.experience}
-            - Tech Stacks: ${data?.techStack}
+      Candidate Profile:
+      - Current Position: ${data?.candidateProfile?.position}
+      - Years of Experience: ${data?.candidateProfile?.experience}
+      - Technical Skills: ${data?.candidateProfile?.techStack}
+      - Experience Summary: ${data?.candidateProfile?.description}
 
-            The questions should assess skills in ${data?.techStack} development and best practices, problem-solving, and experience handling complex requirements. Please format the output strictly as an array of JSON objects without any additional labels, code blocks, or explanations. Return only the JSON array with questions and answers.
-            `;
+      Generate 10 questions with the following distribution:
+      1. Technical Questions (6 questions):
+         - 2 questions based on the required tech stack and job requirements
+         - 2 questions based on the candidate's technical skills and experience
+         - 2 questions that bridge the gap between candidate's experience and job requirements
+         Include a mix of:
+         - System design
+         - Architecture decisions
+         - Best practices
+         - Problem-solving scenarios
+
+      2. Behavioral Questions (4 questions):
+         - 2 questions about past experiences from their resume
+         - 2 questions about how they would handle situations relevant to the job role
+         Focus on:
+         - Leadership experience
+         - Team collaboration
+         - Problem-solving approach
+         - Communication skills
+         - Project management
+         - Handling challenges
+
+      For each question, provide:
+      1. The question text
+      2. A detailed answer that includes:
+         - Key points to cover
+         - Best practices to mention
+         - Common pitfalls to avoid
+         - Expected level of detail based on experience
+
+      Please format the output strictly as an array of JSON objects without any additional labels, code blocks, or explanations. Return only the JSON array with questions and answers.
+    `;
 
     const aiResult = await chatSession.sendMessage(prompt);
     const cleanedResponse = cleanJsonResponse(aiResult.response.text());
@@ -122,9 +181,7 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
       setIsLoading(true);
 
       if (initialData) {
-        // update api
         if (isValid) {
-          // create a new mock interview
           const aiResult = await generateAiResult(data);
 
           await updateDoc(doc(db, "interviews", initialData?.id), {
@@ -136,10 +193,7 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
           toast(toastMessage.title, { description: toastMessage.description });
         }
       } else {
-        // create api
-
         if (isValid) {
-          // create a new mock interview
           const aiResult = await generateAiResult(data);
 
           const interviewRef = await addDoc(collection(db, "interviews"), {
@@ -174,10 +228,19 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
   useEffect(() => {
     if (initialData) {
       form.reset({
-        position: initialData.position,
-        description: initialData.description,
-        experience: initialData.experience,
-        techStack: initialData.techStack,
+        jobPosition: initialData.position,
+        jobDescription: initialData.description,
+        requiredExperience: initialData.experience,
+        requiredTechStack: initialData.techStack,
+        candidateProfile: {
+          position: initialData.candidateProfile?.position || '',
+          experience: initialData.candidateProfile?.experience || 0,
+          techStack: initialData.candidateProfile?.techStack || '',
+          description: initialData.candidateProfile?.description || '',
+          education: initialData.candidateProfile?.education || '',
+          latestCompany: initialData.candidateProfile?.latestCompany || '',
+          projects: initialData.candidateProfile?.projects || '',
+        },
       });
     }
   }, [initialData, form]);
@@ -207,92 +270,251 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
       <FormProvider {...form}>
         <form
           onSubmit={form.handleSubmit(onSubmit)}
-          className="w-full p-8 rounded-lg flex-col flex items-start justify-start gap-6 shadow-md "
+          className="w-full p-8 rounded-lg flex-col flex items-start justify-start gap-6 shadow-md"
         >
-          <FormField
-            control={form.control}
-            name="position"
-            render={({ field }) => (
-              <FormItem className="w-full space-y-4">
-                <div className="w-full flex items-center justify-between">
-                  <FormLabel>Job Role / Job Position</FormLabel>
-                  <FormMessage className="text-sm" />
-                </div>
-                <FormControl>
-                  <Input
-                    className="h-12"
-                    disabled={isLoading}
-                    placeholder="eg:- Full Stack Developer"
-                    {...field}
-                  />
-                </FormControl>
-              </FormItem>
-            )}
-          />
+          {/* Job Requirements Section */}
+          <div className="w-full space-y-4">
+            <h3 className="text-lg font-semibold">Job Requirements</h3>
+            <FormField
+              control={form.control}
+              name="jobPosition"
+              render={({ field }) => (
+                <FormItem className="w-full space-y-4">
+                  <div className="w-full flex items-center justify-between">
+                    <FormLabel>Job Role / Position Required</FormLabel>
+                    <FormMessage className="text-sm" />
+                  </div>
+                  <FormControl>
+                    <Input
+                      className="h-12"
+                      disabled={isLoading}
+                      placeholder="eg:- Full Stack Developer"
+                      {...field}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
 
-          <FormField
-            control={form.control}
-            name="description"
-            render={({ field }) => (
-              <FormItem className="w-full space-y-4">
-                <div className="w-full flex items-center justify-between">
-                  <FormLabel>Job Description</FormLabel>
-                  <FormMessage className="text-sm" />
-                </div>
-                <FormControl>
-                  <Textarea
-                    className="h-12"
-                    disabled={isLoading}
-                    placeholder="eg:- describle your job role"
-                    {...field}
-                  />
-                </FormControl>
-              </FormItem>
-            )}
-          />
+            <FormField
+              control={form.control}
+              name="jobDescription"
+              render={({ field }) => (
+                <FormItem className="w-full space-y-4">
+                  <div className="w-full flex items-center justify-between">
+                    <FormLabel>Job Description</FormLabel>
+                    <FormMessage className="text-sm" />
+                  </div>
+                  <FormControl>
+                    <Textarea
+                      className="h-12"
+                      disabled={isLoading}
+                      placeholder="eg:- describe the job requirements"
+                      {...field}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
 
-          <FormField
-            control={form.control}
-            name="experience"
-            render={({ field }) => (
-              <FormItem className="w-full space-y-4">
-                <div className="w-full flex items-center justify-between">
-                  <FormLabel>Years of Experience</FormLabel>
-                  <FormMessage className="text-sm" />
-                </div>
-                <FormControl>
-                  <Input
-                    type="number"
-                    className="h-12"
-                    disabled={isLoading}
-                    placeholder="eg:- 5 Years"
-                    {...field}
-                  />
-                </FormControl>
-              </FormItem>
-            )}
-          />
+            <FormField
+              control={form.control}
+              name="requiredExperience"
+              render={({ field }) => (
+                <FormItem className="w-full space-y-4">
+                  <div className="w-full flex items-center justify-between">
+                    <FormLabel>Required Years of Experience</FormLabel>
+                    <FormMessage className="text-sm" />
+                  </div>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      className="h-12"
+                      disabled={isLoading}
+                      placeholder="eg:- 5 Years"
+                      {...field}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
 
-          <FormField
-            control={form.control}
-            name="techStack"
-            render={({ field }) => (
-              <FormItem className="w-full space-y-4">
-                <div className="w-full flex items-center justify-between">
-                  <FormLabel>Tech Stacks</FormLabel>
-                  <FormMessage className="text-sm" />
-                </div>
-                <FormControl>
-                  <Textarea
-                    className="h-12"
-                    disabled={isLoading}
-                    placeholder="eg:- React, Typescript..."
-                    {...field}
-                  />
-                </FormControl>
-              </FormItem>
-            )}
-          />
+            <FormField
+              control={form.control}
+              name="requiredTechStack"
+              render={({ field }) => (
+                <FormItem className="w-full space-y-4">
+                  <div className="w-full flex items-center justify-between">
+                    <FormLabel>Required Tech Stack</FormLabel>
+                    <FormMessage className="text-sm" />
+                  </div>
+                  <FormControl>
+                    <Textarea
+                      className="h-12"
+                      disabled={isLoading}
+                      placeholder="eg:- React, TypeScript, Node.js"
+                      {...field}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <Separator className="my-4" />
+
+          {/* Candidate Profile Section */}
+          <div className="w-full space-y-4">
+            <h3 className="text-lg font-semibold">Candidate Profile</h3>
+            
+            <FormField
+              control={form.control}
+              name="candidateProfile.position"
+              render={({ field }) => (
+                <FormItem className="w-full space-y-4">
+                  <div className="w-full flex items-center justify-between">
+                    <FormLabel>Current Position</FormLabel>
+                    <FormMessage className="text-sm" />
+                  </div>
+                  <FormControl>
+                    <Input
+                      className="h-12"
+                      disabled={isLoading}
+                      placeholder="eg:- Senior Software Engineer"
+                      {...field}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="candidateProfile.latestCompany"
+              render={({ field }) => (
+                <FormItem className="w-full space-y-4">
+                  <div className="w-full flex items-center justify-between">
+                    <FormLabel>Latest Company</FormLabel>
+                    <FormMessage className="text-sm" />
+                  </div>
+                  <FormControl>
+                    <Input
+                      className="h-12"
+                      disabled={isLoading}
+                      placeholder="eg:- Google, Microsoft, Amazon"
+                      {...field}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="candidateProfile.experience"
+              render={({ field }) => (
+                <FormItem className="w-full space-y-4">
+                  <div className="w-full flex items-center justify-between">
+                    <FormLabel>Years of Experience</FormLabel>
+                    <FormMessage className="text-sm" />
+                  </div>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      className="h-12"
+                      disabled={isLoading}
+                      placeholder="eg:- 5 Years"
+                      {...field}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="candidateProfile.education"
+              render={({ field }) => (
+                <FormItem className="w-full space-y-4">
+                  <div className="w-full flex items-center justify-between">
+                    <FormLabel>Education</FormLabel>
+                    <FormMessage className="text-sm" />
+                  </div>
+                  <FormControl>
+                    <Input
+                      className="h-12"
+                      disabled={isLoading}
+                      placeholder="eg:- B.Tech in Computer Science from MIT"
+                      {...field}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="candidateProfile.techStack"
+              render={({ field }) => (
+                <FormItem className="w-full space-y-4">
+                  <div className="w-full flex items-center justify-between">
+                    <FormLabel>Technical Skills</FormLabel>
+                    <FormMessage className="text-sm" />
+                  </div>
+                  <FormControl>
+                    <Textarea
+                      className="h-12"
+                      disabled={isLoading}
+                      placeholder="eg:- React, TypeScript, Node.js, AWS"
+                      {...field}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="candidateProfile.projects"
+              render={({ field }) => (
+                <FormItem className="w-full space-y-4">
+                  <div className="w-full flex items-center justify-between">
+                    <FormLabel>Notable Projects</FormLabel>
+                    <FormMessage className="text-sm" />
+                  </div>
+                  <FormControl>
+                    <Textarea
+                      className="h-24"
+                      disabled={isLoading}
+                      placeholder="eg:- Briefly describe your key projects, their impact, and your role"
+                      {...field}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="candidateProfile.description"
+              render={({ field }) => (
+                <FormItem className="w-full space-y-4">
+                  <div className="w-full flex items-center justify-between">
+                    <FormLabel>Experience Summary</FormLabel>
+                    <FormMessage className="text-sm" />
+                  </div>
+                  <FormControl>
+                    <Textarea
+                      className="h-24"
+                      disabled={isLoading}
+                      placeholder="eg:- Brief summary of your experience and expertise"
+                      {...field}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+          </div>
 
           <div className="w-full flex items-center justify-end gap-6">
             <Button

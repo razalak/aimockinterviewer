@@ -1,7 +1,6 @@
 import WebCam from "react-webcam";
 import {
   CircleStop,
-  Download,
   Loader,
   Mic,
   RefreshCw,
@@ -59,9 +58,15 @@ interface SpeechRecognition extends EventTarget {
   start: () => void;
   stop: () => void;
   abort: () => void;
+  onstart: (event: Event) => void;
   onresult: (event: SpeechRecognitionEvent) => void;
   onerror: (event: SpeechRecognitionErrorEvent) => void;
   onend: (event: Event) => void;
+}
+
+interface MediaUrls {
+  videoUrl?: string;
+  audioUrl?: string;
 }
 
 // Augment the Window interface to include SpeechRecognition
@@ -112,7 +117,6 @@ export const RecordAnswer = ({
 
   const [userAnswer, setUserAnswer] = useState("");
   const [isAiGenerating, setIsAiGenerating] = useState(false);
-  const [aiResult, setAiResult] = useState<AIResponse | null>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -136,6 +140,14 @@ export const RecordAnswer = ({
     improvements: string[];
   } | null>(null);
   const [showFeedback, setShowFeedback] = useState(false);
+
+  // Add a new state for speech recognition status
+  const [isSpeechRecognitionActive, setIsSpeechRecognitionActive] = useState(false);
+  const [speechRecognitionError, setSpeechRecognitionError] = useState<string | null>(null);
+
+  // Add a new state for retry attempts
+  const [retryAttempts, setRetryAttempts] = useState(0);
+  const MAX_RETRY_ATTEMPTS = 3;
 
   // Replace the browser compatibility check with a more accurate one
   const isBrowserCompatible = useRef(() => {
@@ -165,7 +177,7 @@ export const RecordAnswer = ({
     return hasMediaRecorder && hasSpeechRecognition && isSecureContext;
   }).current();
 
-  // Modify the speech recognition initialization to be more direct
+  // Update the speech recognition initialization
   useEffect(() => {
     // Only initialize if we're in a compatible browser
     if (!isBrowserCompatible) return;
@@ -173,6 +185,14 @@ export const RecordAnswer = ({
     try {
       // Create a direct instance without checking again
       const SpeechRecognitionAPI = window.webkitSpeechRecognition || window.SpeechRecognition;
+      if (!SpeechRecognitionAPI) {
+        console.error("Speech recognition API not available");
+        toast.error("Browser Not Supported", {
+          description: "Your browser doesn't support speech recognition. Please try a different browser.",
+        });
+        return;
+      }
+
       const recognition = new SpeechRecognitionAPI();
       
       // Basic configuration
@@ -185,6 +205,9 @@ export const RecordAnswer = ({
       // Set up event handlers
       recognition.onstart = () => {
         console.log("Speech recognition started");
+        setIsRecording(true);
+        setIsSpeechRecognitionActive(true);
+        setSpeechRecognitionError(null);
       };
       
       recognition.onresult = (event) => {
@@ -211,12 +234,97 @@ export const RecordAnswer = ({
       
       recognition.onerror = (event) => {
         console.error("Speech recognition error:", event.error);
+        setIsSpeechRecognitionActive(false);
+        setSpeechRecognitionError(event.error);
         
         if (event.error === 'not-allowed') {
           setPermissionBlocked(true);
           toast.error("Microphone Access Denied", {
             description: "Please allow microphone access to use speech recognition.",
           });
+        } else if (event.error === 'no-speech') {
+          toast.error("No Speech Detected", {
+            description: "Please speak louder or check your microphone.",
+          });
+        } else if (event.error === 'aborted') {
+          console.log("Speech recognition aborted");
+        } else if (event.error === 'network') {
+          // Handle network error with retry logic
+          if (retryAttempts < MAX_RETRY_ATTEMPTS) {
+            setRetryAttempts(prev => prev + 1);
+            toast.warning("Connection Issue", {
+              description: `Attempting to reconnect to Google's speech services (${retryAttempts + 1}/${MAX_RETRY_ATTEMPTS})...`,
+            });
+            
+            // Try to restart after a delay
+            setTimeout(async () => {
+              if (isRecording && !isSpeechRecognitionActive) {
+                try {
+                  // First stop any existing recognition
+                  try {
+                    recognition.stop();
+                  } catch (e) {
+                    // Ignore stop errors
+                  }
+                  
+                  // Check Google connectivity before restarting
+                  if (await checkGoogleConnectivity()) {
+                    // Start after a short delay
+                    setTimeout(() => {
+                      if (!isSpeechRecognitionActive) {
+                        recognition.start();
+                        console.log("Speech recognition restarted after network error");
+                      }
+                    }, 500);
+                  } else {
+                    toast.error("Google Services Unavailable", {
+                      description: "Unable to connect to Google's speech services. Please check your internet connection.",
+                    });
+                    if (isRecording) {
+                      stopRecording();
+                    }
+                  }
+                } catch (e) {
+                  console.error("Failed to restart speech recognition:", e);
+                }
+              }
+            }, 1000);
+          } else {
+            toast.error("Connection Error", {
+              description: "Unable to establish a stable connection to Google's speech services. Please try again later.",
+            });
+            if (isRecording) {
+              stopRecording();
+            }
+          }
+        } else {
+          toast.error("Speech Recognition Error", {
+            description: "An error occurred with speech recognition. Please try again.",
+          });
+        }
+      };
+
+      recognition.onend = () => {
+        console.log("Speech recognition ended");
+        setIsSpeechRecognitionActive(false);
+        
+        // Only attempt to restart if we're still recording and haven't exceeded retry attempts
+        if (isRecording && retryAttempts < MAX_RETRY_ATTEMPTS) {
+          // Add a small delay before restarting to prevent rapid restarts
+          setTimeout(() => {
+            try {
+              if (!isSpeechRecognitionActive && isRecording) {
+                recognition.start();
+                console.log("Speech recognition restarted after end");
+              }
+            } catch (e) {
+              console.error("Failed to restart speech recognition:", e);
+              // If restart fails, stop recording
+              if (isRecording) {
+                stopRecording();
+              }
+            }
+          }, 500);
         }
       };
       
@@ -224,6 +332,9 @@ export const RecordAnswer = ({
       recognitionRef.current = recognition;
     } catch (error) {
       console.error("Failed to initialize speech recognition:", error);
+      toast.error("Initialization Error", {
+        description: "Failed to initialize speech recognition. Please refresh the page.",
+      });
     }
     
     return () => {
@@ -235,7 +346,179 @@ export const RecordAnswer = ({
         }
       }
     };
-  }, [isBrowserCompatible]); // Only depend on browser compatibility
+  }, []); // Remove dependency on isBrowserCompatible to ensure it runs once
+
+  // Add a new function to check Google's servers connectivity
+  const checkGoogleConnectivity = async () => {
+    try {
+      const response = await fetch('https://www.google.com/favicon.ico', {
+        method: 'HEAD',
+        mode: 'no-cors',
+      });
+      return true;
+    } catch (error) {
+      console.error('Google connectivity check failed:', error);
+      return false;
+    }
+  };
+
+  // Update the checkNetworkConnection function
+  const checkNetworkConnection = async () => {
+    if (!navigator.onLine) {
+      toast.error("No Internet Connection", {
+        description: "Please check your internet connection and try again.",
+      });
+      return false;
+    }
+
+    // Check Google's servers specifically
+    const isGoogleReachable = await checkGoogleConnectivity();
+    if (!isGoogleReachable) {
+      toast.error("Google Services Unavailable", {
+        description: "Speech recognition requires access to Google's servers. Please check your connection to Google services.",
+      });
+      return false;
+    }
+
+    return true;
+  };
+
+  // Update the startRecording function
+  const startRecording = async () => {
+    // Check network connection first
+    if (!await checkNetworkConnection()) {
+      return;
+    }
+
+    setRecordedChunks([]);
+    setUserAnswer("");
+    setAudioTranscript("");
+    setRetryAttempts(0); // Reset retry attempts when starting new recording
+    setSpeechRecognitionError(null); // Reset any previous errors
+    
+    // Check for permission blocks
+    if (permissionBlocked) {
+      resetPermissions();
+      return;
+    }
+    
+    // Check for initialization in progress
+    if (isInitializing) {
+      toast.error("Please wait", {
+        description: "Media devices are being initialized...",
+      });
+      return;
+    }
+    
+    // Request media access if needed
+    if (micPermission !== 'granted' || !mediaStream) {
+      const hasAccess = await requestMediaAccess();
+      if (!hasAccess) {
+        setPermissionBlocked(true);
+        return;
+      }
+    }
+    
+    try {
+      // Start media recorder
+      if (mediaRecorderRef.current) {
+        mediaRecorderRef.current.start(1000);
+      }
+      
+      // Start speech recognition with network check
+      if (recognitionRef.current && !isSpeechRecognitionActive) {
+        try {
+          // First stop any existing recognition
+          try {
+            recognitionRef.current.stop();
+          } catch (e) {
+            // Ignore stop errors
+          }
+          
+          // Start after a short delay
+          setTimeout(async () => {
+            try {
+              if (await checkNetworkConnection() && !isSpeechRecognitionActive) {
+                recognitionRef.current?.start();
+                console.log("Speech recognition started");
+              }
+            } catch (e) {
+              console.error("Failed to start speech recognition:", e);
+            }
+          }, 200);
+        } catch (e) {
+          console.error("Error in speech recognition start sequence:", e);
+        }
+      } else {
+        console.warn("Speech recognition not available or already active");
+      }
+      
+      setIsRecording(true);
+      toast.success("Recording Started", {
+        description: "Your answer is now being recorded.",
+      });
+    } catch (error) {
+      console.error("Failed to start recording:", error);
+      toast.error("Recording Error", {
+        description: "Failed to start recording. Please check your device permissions.",
+      });
+    }
+  };
+
+  // Update the startSpeechRecognition function
+  const startSpeechRecognition = useCallback(() => {
+    if (!recognitionRef.current) {
+      console.error("Speech recognition not initialized");
+      return;
+    }
+
+    try {
+      // Only start if not already active
+      if (!isSpeechRecognitionActive) {
+        recognitionRef.current.start();
+        setIsRecording(true);
+      } else {
+        console.log("Speech recognition already active");
+      }
+    } catch (error) {
+      console.error("Failed to start speech recognition:", error);
+      toast.error("Start Error", {
+        description: "Failed to start speech recognition. Please try again.",
+      });
+    }
+  }, [isSpeechRecognitionActive]);
+
+  // Update the stopSpeechRecognition function
+  const stopSpeechRecognition = useCallback(() => {
+    if (!recognitionRef.current) {
+      console.error("Speech recognition not initialized");
+      return;
+    }
+
+    try {
+      if (isSpeechRecognitionActive) {
+        recognitionRef.current.stop();
+        setIsRecording(false);
+        setIsSpeechRecognitionActive(false);
+      }
+    } catch (error) {
+      console.error("Failed to stop speech recognition:", error);
+      toast.error("Stop Error", {
+        description: "Failed to stop speech recognition. Please try again.",
+      });
+    }
+  }, [isSpeechRecognitionActive]);
+
+  // Add back the toggleRecording function
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording();
+      stopSpeechRecognition();
+    } else {
+      startRecording();
+      startSpeechRecognition();
+    }
+  };
 
   // Check microphone permission on component mount
   useEffect(() => {
@@ -389,78 +672,6 @@ export const RecordAnswer = ({
     }
   };
 
-  const startRecording = async () => {
-    setRecordedChunks([]);
-    setUserAnswer("");
-    setAudioTranscript("");
-    
-    // Check for permission blocks
-    if (permissionBlocked) {
-      resetPermissions();
-      return;
-    }
-    
-    // Check for initialization in progress
-    if (isInitializing) {
-      toast.error("Please wait", {
-        description: "Media devices are being initialized...",
-      });
-      return;
-    }
-    
-    // Request media access if needed
-    if (micPermission !== 'granted' || !mediaStream) {
-      const hasAccess = await requestMediaAccess();
-      if (!hasAccess) {
-        setPermissionBlocked(true);
-        return;
-      }
-    }
-    
-    try {
-      // Start media recorder
-      if (mediaRecorderRef.current) {
-        mediaRecorderRef.current.start(1000);
-      }
-      
-      // Start speech recognition - simplified approach
-      if (recognitionRef.current) {
-        try {
-          // First stop any existing recognition
-          try {
-            recognitionRef.current.stop();
-          } catch (e) {
-            // Ignore stop errors
-          }
-          
-          // Start after a short delay
-          setTimeout(() => {
-            try {
-              recognitionRef.current?.start();
-              console.log("Speech recognition started");
-            } catch (e) {
-              console.error("Failed to start speech recognition:", e);
-            }
-          }, 200);
-        } catch (e) {
-          console.error("Error in speech recognition start sequence:", e);
-        }
-      } else {
-        console.warn("Speech recognition not available");
-      }
-      
-      setIsRecording(true);
-      toast.success("Recording Started", {
-        description: "Your answer is now being recorded.",
-      });
-    } catch (error) {
-      console.error("Failed to start recording:", error);
-      toast.error("Recording Error", {
-        description: "Failed to start recording. Please check your device permissions.",
-      });
-    }
-  };
-
   const stopRecording = async () => {
     try {
       // Stop Speech Recognition
@@ -604,10 +815,10 @@ export const RecordAnswer = ({
   };
   
   // Upload the recorded media to Firebase Storage
-  const uploadMediaToStorage = async (answerId: string) => {
+  const uploadMediaToStorage = async (answerId: string): Promise<MediaUrls> => {
     try {
       console.log("Uploading media for answer ID:", answerId);
-      const mediaUrls: { videoUrl?: string, audioUrl?: string } = {};
+      const mediaUrls: MediaUrls = {};
       
       // Upload video if available
       if (recordedMedia.videoBlob) {
@@ -642,7 +853,7 @@ export const RecordAnswer = ({
       return mediaUrls;
     } catch (error) {
       console.error("Error in uploadMediaToStorage:", error);
-      throw error; // Re-throw to handle in the calling function
+      throw error;
     }
   };
 
@@ -685,14 +896,6 @@ export const RecordAnswer = ({
     setTimeout(() => {
       startRecording();
     }, 500);
-  };
-
-  const toggleRecording = () => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
   };
 
   const cleanJsonResponse = (responseText: string) => {
@@ -887,7 +1090,7 @@ export const RecordAnswer = ({
 
       // Handle recordings if available
       const hasRecordings = recordedMedia.videoBlob || recordedMedia.audioBlob;
-      let mediaUrls = {};
+      let mediaUrls: MediaUrls = {};
 
       if (hasRecordings) {
         toast.loading("Uploading recording...", { id: "upload-recording" });
@@ -923,7 +1126,7 @@ export const RecordAnswer = ({
         question: question.question,
         correctAnswer: question.answer,
         userAnswer: userAnswer,
-        recordingUrl: hasRecordings ? (mediaUrls.audioUrl || mediaUrls.videoUrl) : undefined
+        recordingUrl: hasRecordings ? (mediaUrls as MediaUrls).audioUrl || (mediaUrls as MediaUrls).videoUrl : undefined
       }]);
 
       // Dismiss saving toast and show success
@@ -979,9 +1182,19 @@ export const RecordAnswer = ({
     return { answer: answerData };
   };
 
-  // Replace the debug function with a simpler version
-  const debugSpeechRecognition = () => {
+  // Update the debug function with better error handling
+  const debugSpeechRecognition = async () => {
     try {
+      // First check microphone permission
+      const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      
+      if (permissionStatus.state === 'denied') {
+        toast.error("Microphone Access Denied", {
+          description: "Please allow microphone access in your browser settings.",
+        });
+        return;
+      }
+
       // Create a direct instance for testing
       const SpeechRecognitionAPI = window.webkitSpeechRecognition || window.SpeechRecognition;
       
@@ -1012,9 +1225,23 @@ export const RecordAnswer = ({
       };
       
       testRecognition.onerror = (event) => {
-        toast.error(`Speech Recognition Error: ${event.error}`, {
-          description: "Please check your microphone and browser permissions.",
-        });
+        if (event.error === 'not-allowed') {
+          toast.error("Microphone Access Denied", {
+            description: "Please allow microphone access in your browser settings.",
+          });
+        } else if (event.error === 'no-speech') {
+          toast.warning("No Speech Detected", {
+            description: "Please speak louder or check your microphone.",
+          });
+        } else if (event.error === 'network') {
+          toast.error("Network Error", {
+            description: "Please check your internet connection.",
+          });
+        } else {
+          toast.error(`Speech Recognition Error: ${event.error}`, {
+            description: "An error occurred with speech recognition.",
+          });
+        }
       };
       
       testRecognition.start();
@@ -1165,6 +1392,77 @@ Format your response as JSON with these fields:
     loadSavedAnswers();
   }, [userId, interviewId]);
 
+  // Update the video toggle functionality
+  const toggleVideo = async () => {
+    if (isRecording) {
+      stopRecording();
+    }
+
+    setIsWebCam(!isWebCam);
+    setIsInitializing(true);
+
+    try {
+      // Stop existing media stream if any
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        setMediaStream(null);
+      }
+
+      if (!isWebCam) {
+        // If turning video on, request new media
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: "user",
+          }
+        });
+        
+        setMediaStream(stream);
+        setMicPermission('granted');
+        
+        // Create a new MediaRecorder instance
+        const mediaRecorder = new MediaRecorder(stream, {
+          mimeType: MediaRecorder.isTypeSupported('video/webm') 
+            ? 'video/webm' 
+            : 'video/mp4'
+        });
+        
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            setRecordedChunks(prev => [...prev, event.data]);
+          }
+        };
+
+        mediaRecorderRef.current = mediaRecorder;
+        
+        toast.success("Camera Connected", {
+          description: "Your webcam has been successfully connected.",
+        });
+      } else {
+        // If turning video off, just stop the stream
+        setWebcamError(null);
+        toast.success("Camera Disconnected", {
+          description: "Your webcam has been turned off.",
+        });
+      }
+    } catch (error: unknown) {
+      console.error('Error toggling video:', error);
+      setWebcamError(error instanceof Error ? error.message : String(error));
+      setIsWebCam(false);
+      toast.error("Camera Error", {
+        description: "Failed to access webcam. Please check your permissions.",
+      });
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
   return (
     <div className="w-full flex flex-col items-center gap-8 mt-4">
       {/* Save modal */}
@@ -1217,14 +1515,7 @@ Format your response as JSON with these fields:
               <Video className="min-w-5 min-h-5" />
             )
           }
-          onClick={() => {
-            setIsWebCam(!isWebCam);
-            if (isRecording) {
-              stopRecording();
-            }
-            // Re-request media with new camera setting
-            requestMediaAccess();
-          }}
+          onClick={toggleVideo}
           disbaled={isInitializing}
         />
 
