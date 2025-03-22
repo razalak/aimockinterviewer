@@ -80,7 +80,7 @@ export const InterviewPin = ({
       <CardTitle>{data?.position}</CardTitle>
       <CardDescription>{data?.description}</CardDescription>
       <div className="w-full flex items-center gap-2 flex-wrap">
-        {data.techStack.split(",").map((word, index) => (
+        {(data?.techStack || '').split(",").map((word, index) => (
           <Badge
             key={index}
             variant={"outline"}
@@ -98,7 +98,7 @@ export const InterviewPin = ({
         )}
       >
         <p className="text-[12px] text-muted-foreground truncate whitespace-nowrap">
-          {`${new Date(data.createdAt.toDate()).toLocaleDateString("en-US", {
+          {data?.createdAt && `${new Date(data.createdAt.toDate()).toLocaleDateString("en-US", {
             dateStyle: "long",
           })} - ${new Date(data.createdAt.toMillis()).toLocaleTimeString(
             "en-US",

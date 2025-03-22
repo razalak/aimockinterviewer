@@ -11,14 +11,23 @@ export interface User {
 
 export interface Interview {
   id: string;
+  userId: string;
   position: string;
   description: string;
   experience: number;
-  userId: string;
   techStack: string;
-  questions: { question: string; answer: string }[];
-  createdAt: Timestamp;
-  updateAt: Timestamp;
+  questions: any[];
+  createdAt: any;
+  updatedAt: any;
+  candidateProfile: {
+    position: string;
+    experience: number;
+    techStack: string;
+    description: string;
+    education: string;
+    latestCompany: string;
+    projects: string;
+  };
 }
 
 export interface UserAnswer {
