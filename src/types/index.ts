@@ -20,6 +20,7 @@ export interface Interview {
   createdAt: any;
   updatedAt: any;
   candidateProfile: {
+    resumeFileName: string | null;
     position: string;
     experience: number;
     techStack: string;

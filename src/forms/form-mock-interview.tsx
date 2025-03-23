@@ -29,19 +29,10 @@ import {
 import { db } from "@/config/firebase.config";
 import { toast } from "sonner";
 import { Interview } from "@/types";
+import { parseResume, generateResumeQuestions } from "@/utils/resume-parser";
 
 interface FormMockInterview {
   initialData: Interview | null;
-}
-
-interface CandidateProfile {
-  position: string;
-  experience: number;
-  techStack: string;
-  description: string;
-  education: string;
-  latestCompany: string;
-  projects: string;
 }
 
 const formSchema = z.object({
@@ -58,6 +49,7 @@ const formSchema = z.object({
   
   // Candidate Profile
   candidateProfile: z.object({
+    resumeFileName: z.string().optional(), // Store file name instead of File object
     position: z.string().min(1, "Current position is required"),
     experience: z.coerce.number().min(0, "Experience cannot be negative"),
     techStack: z.string().min(1, "Tech stack is required"),
@@ -79,6 +71,7 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
       requiredExperience: initialData?.experience || 0,
       requiredTechStack: initialData?.techStack || '',
       candidateProfile: {
+        resumeFileName: undefined,
         position: '',
         experience: 0,
         techStack: '',
@@ -94,6 +87,8 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { userId } = useAuth();
+  const [resumeQuestions, setResumeQuestions] = useState<string[]>([]);
+  const [isParsingResume, setIsParsingResume] = useState(false);
 
   const title = initialData
     ? initialData.position
@@ -121,6 +116,31 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
     }
   };
 
+  const handleResumeUpload = async (file: File) => {
+    try {
+      setIsParsingResume(true);
+      const parsedResume = await parseResume(file);
+      const questions = generateResumeQuestions(parsedResume);
+      setResumeQuestions(questions);
+      
+      // Update form with parsed information
+      form.setValue('candidateProfile.projects', parsedResume.projects.join('\n'));
+      form.setValue('candidateProfile.techStack', parsedResume.skills.join(', '));
+      form.setValue('candidateProfile.resumeFileName', file.name);
+      
+      toast.success("Resume parsed successfully", {
+        description: "Resume information has been extracted and questions generated.",
+      });
+    } catch (error) {
+      console.error('Error handling resume:', error);
+      toast.error("Failed to parse resume", {
+        description: "Please try uploading the resume again.",
+      });
+    } finally {
+      setIsParsingResume(false);
+    }
+  };
+
   const generateAiResult = async (data: FormData) => {
     const prompt = `
       As an experienced prompt engineer, generate a JSON array containing 10 interview questions along with detailed answers based on the following information. The questions should be a mix of technical and behavioral questions.
@@ -136,6 +156,10 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
       - Years of Experience: ${data?.candidateProfile?.experience}
       - Technical Skills: ${data?.candidateProfile?.techStack}
       - Experience Summary: ${data?.candidateProfile?.description}
+      - Projects: ${data?.candidateProfile?.projects}
+
+      Resume-Based Questions:
+      ${resumeQuestions.map(q => `- ${q}`).join('\n')}
 
       Generate 10 questions with the following distribution:
       1. Technical Questions (6 questions):
@@ -233,6 +257,7 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
         requiredExperience: initialData.experience,
         requiredTechStack: initialData.techStack,
         candidateProfile: {
+          resumeFileName: initialData.candidateProfile?.resumeFileName || undefined,
           position: initialData.candidateProfile?.position || '',
           experience: initialData.candidateProfile?.experience || 0,
           techStack: initialData.candidateProfile?.techStack || '',
@@ -367,6 +392,45 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
           <div className="w-full space-y-4">
             <h3 className="text-lg font-semibold">Candidate Profile</h3>
             
+            <FormField
+              control={form.control}
+              name="candidateProfile.resumeFileName"
+              render={({ field: { onChange, value, ...field } }) => (
+                <FormItem className="w-full space-y-4">
+                  <div className="w-full flex items-center justify-between">
+                    <FormLabel>Resume</FormLabel>
+                    <FormMessage className="text-sm" />
+                  </div>
+                  <FormControl>
+                    <div className="flex items-center gap-4">
+                      <Input
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        className="h-12"
+                        disabled={isLoading || isParsingResume}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            onChange(file.name);
+                            await handleResumeUpload(file);
+                          }
+                        }}
+                        {...field}
+                      />
+                      {value && (
+                        <span className="text-sm text-gray-500">
+                          {value}
+                        </span>
+                      )}
+                      {isParsingResume && (
+                        <Loader className="h-4 w-4 animate-spin" />
+                      )}
+                    </div>
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
             <FormField
               control={form.control}
               name="candidateProfile.position"
