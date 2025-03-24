@@ -3,6 +3,7 @@ import {
   Card,
   CardDescription,
   CardFooter,
+  CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -76,83 +77,76 @@ export const InterviewPin = ({
   };
 
   return (
-    <Card className="p-4 rounded-md shadow-none hover:shadow-md shadow-gray-100 cursor-pointer transition-all space-y-4">
-      <CardTitle>{data?.position}</CardTitle>
-      <CardDescription>{data?.description}</CardDescription>
-      <div className="w-full flex items-center gap-2 flex-wrap">
-        {(data?.techStack || '').split(",").map((word, index) => (
-          <Badge
-            key={index}
-            variant={"outline"}
-            className="text-xs text-muted-foreground hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-900"
-          >
-            {word}
+    <Card className="group hover:shadow-lg transition-all duration-200">
+      <CardHeader className="space-y-1">
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <CardTitle className="text-xl font-semibold line-clamp-1 text-primary">
+              {data.jobPosition || data.position}
+            </CardTitle>
+            <CardDescription className="text-sm text-muted-foreground line-clamp-2">
+              {data.jobDescription || data.description}
+            </CardDescription>
+          </div>
+          <Badge variant="outline" className="ml-2">
+            {data.requiredExperience || data.experience} years
           </Badge>
-        ))}
-      </div>
-
-      <CardFooter
-        className={cn(
-          "w-full flex items-center p-0",
-          onMockPage ? "justify-end" : "justify-between"
-        )}
-      >
-        <p className="text-[12px] text-muted-foreground truncate whitespace-nowrap">
-          {data?.createdAt && `${new Date(data.createdAt.toDate()).toLocaleDateString("en-US", {
-            dateStyle: "long",
-          })} - ${new Date(data.createdAt.toMillis()).toLocaleTimeString(
-            "en-US",
-            {
-              timeStyle: "short",
-            }
-          )}`}
-        </p>
-
+        </div>
+        <div className="flex flex-wrap gap-2 mt-2">
+          {(data.requiredTechStack || data.techStack)?.split(',').map((tech, index) => (
+            <Badge key={index} variant="secondary" className="text-xs">
+              {tech.trim()}
+            </Badge>
+          ))}
+        </div>
+      </CardHeader>
+      <CardFooter className="flex flex-col gap-4">
+        <div className="w-full flex items-center justify-between text-sm text-muted-foreground">
+          <span>Created {new Date(data.createdAt?.toDate()).toLocaleDateString()}</span>
+          <span>{data.questions?.length || 0} questions</span>
+        </div>
         {!onMockPage && (
-          <div className="flex items-center justify-center ">
+          <div className="w-full flex items-center justify-between gap-2">
             <TooltipButton
-              content="Edit"
-              buttonVariant={"ghost"}
+              content="Edit Interview"
+              buttonVariant={"outline"}
               onClick={() => {
                 navigate(`/generate/${data.id}`, { replace: true });
               }}
               disbaled={false}
-              buttonClassName="hover:text-red-500"
-              icon={<Pencil />}
+              buttonClassName="flex-1"
+              icon={<Pencil className="h-4 w-4" />}
               loading={false}
             />
-
             <TooltipButton
-              content="Delete"
-              buttonVariant={"ghost"}
+              content="Delete Interview"
+              buttonVariant={"outline"}
               onClick={onDelete}
               disbaled={false}
-              buttonClassName="hover:text-red-500"
-              icon={<Trash2 />}
+              buttonClassName="flex-1 text-destructive hover:text-destructive"
+              icon={<Trash2 className="h-4 w-4" />}
               loading={loading}
             />
-
             <TooltipButton
-              content="Feedback"
-              buttonVariant={"ghost"}
+              content="View Feedback"
+              buttonVariant={"outline"}
               onClick={() => {
                 navigate(`/generate/feedback/${data.id}`, { replace: true });
               }}
               disbaled={false}
-              buttonClassName="hover:text-emerald-500"
-              icon={<Newspaper />}
+              buttonClassName="flex-1"
+              icon={<Newspaper className="h-4 w-4" />}
               loading={false}
             />
-
             <TooltipButton
-              content="Start"
-              buttonVariant={"ghost"}
+              content="Start Interview"
+              buttonVariant={"default"}
               onClick={() => {
                 navigate(`/generate/interview/${data.id}`, { replace: true });
               }}
               disbaled={false}
-              buttonClassName="hover:text-sky-500"
-              icon={<Sparkles />}
+              buttonClassName="flex-1"
+              icon={<Sparkles className="h-4 w-4" />}
               loading={false}
             />
           </div>

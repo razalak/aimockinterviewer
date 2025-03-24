@@ -122,6 +122,7 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
       const parsedResume = await parseResume(file);
       const questions = generateResumeQuestions(parsedResume);
       setResumeQuestions(questions);
+      console.log(parseResume);
       
       // Update form with parsed information
       form.setValue('candidateProfile.projects', parsedResume.projects.join('\n'));
@@ -202,6 +203,66 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
 
   const onSubmit = async (data: FormData) => {
     try {
+      // Validate all required fields
+      const validationErrors: { field: string; message: string }[] = [];
+
+      // Job Requirements Validation
+      if (!data.jobPosition?.trim()) {
+        validationErrors.push({ field: "Job Position", message: "Please enter the job position" });
+      }
+      if (!data.jobDescription?.trim()) {
+        validationErrors.push({ field: "Job Description", message: "Please enter the job description" });
+      }
+      if (!data.requiredExperience || data.requiredExperience < 0) {
+        validationErrors.push({ field: "Required Experience", message: "Please enter valid years of experience" });
+      }
+      if (!data.requiredTechStack?.trim()) {
+        validationErrors.push({ field: "Required Tech Stack", message: "Please enter the required tech stack" });
+      }
+
+      // Candidate Profile Validation
+      if (!data.candidateProfile.position?.trim()) {
+        validationErrors.push({ field: "Current Position", message: "Please enter your current position" });
+      }
+      if (!data.candidateProfile.experience || data.candidateProfile.experience < 0) {
+        validationErrors.push({ field: "Years of Experience", message: "Please enter valid years of experience" });
+      }
+      if (!data.candidateProfile.techStack?.trim()) {
+        validationErrors.push({ field: "Technical Skills", message: "Please enter your technical skills" });
+      }
+      if (!data.candidateProfile.description?.trim()) {
+        validationErrors.push({ field: "Experience Summary", message: "Please enter your experience summary" });
+      }
+      if (!data.candidateProfile.education?.trim()) {
+        validationErrors.push({ field: "Education", message: "Please enter your education details" });
+      }
+      if (!data.candidateProfile.latestCompany?.trim()) {
+        validationErrors.push({ field: "Latest Company", message: "Please enter your latest company" });
+      }
+      if (!data.candidateProfile.projects?.trim()) {
+        validationErrors.push({ field: "Notable Projects", message: "Please enter your notable projects" });
+      }
+
+      if (validationErrors.length > 0) {
+        // Show all validation errors in a single toast with better formatting
+        const errorMessage = validationErrors.map(err => 
+          `• ${err.field}: ${err.message}`
+        ).join('\n');
+
+        toast.error("Form Validation Failed", {
+          description: (
+            <div className="mt-2 flex flex-col gap-2">
+              <p className="text-sm font-medium">Please fix the following issues:</p>
+              <div className="text-sm text-muted-foreground whitespace-pre-line">
+                {errorMessage}
+              </div>
+            </div>
+          ),
+          duration: 5000,
+        });
+        return;
+      }
+
       setIsLoading(true);
 
       if (initialData) {
@@ -214,7 +275,10 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
             updatedAt: serverTimestamp(),
           });
 
-          toast(toastMessage.title, { description: toastMessage.description });
+          toast.success(toastMessage.title, { 
+            description: toastMessage.description,
+            duration: 3000,
+          });
         }
       } else {
         if (isValid) {
@@ -234,15 +298,19 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
             updatedAt: serverTimestamp(),
           });
 
-          toast(toastMessage.title, { description: toastMessage.description });
+          toast.success(toastMessage.title, { 
+            description: toastMessage.description,
+            duration: 3000,
+          });
         }
       }
 
       navigate("/generate", { replace: true });
     } catch (error) {
       console.log(error);
-      toast.error("Error..", {
-        description: `Something went wrong. Please try again later`,
+      toast.error("Error", {
+        description: "Something went wrong. Please try again later.",
+        duration: 3000,
       });
     } finally {
       setIsLoading(false);
@@ -295,307 +363,309 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
       <FormProvider {...form}>
         <form
           onSubmit={form.handleSubmit(onSubmit)}
-          className="w-full p-8 rounded-lg flex-col flex items-start justify-start gap-6 shadow-md"
+          className="w-full space-y-8"
         >
           {/* Job Requirements Section */}
-          <div className="w-full space-y-4">
-            <h3 className="text-lg font-semibold">Job Requirements</h3>
-            <FormField
-              control={form.control}
-              name="jobPosition"
-              render={({ field }) => (
-                <FormItem className="w-full space-y-4">
-                  <div className="w-full flex items-center justify-between">
+          <div className="bg-card rounded-lg p-6 shadow-sm border">
+            <h3 className="text-lg font-semibold mb-6">Job Requirements</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <FormField
+                control={form.control}
+                name="jobPosition"
+                render={({ field }) => (
+                  <FormItem>
                     <FormLabel>Job Role / Position Required</FormLabel>
-                    <FormMessage className="text-sm" />
-                  </div>
-                  <FormControl>
-                    <Input
-                      className="h-12"
-                      disabled={isLoading}
-                      placeholder="eg:- Full Stack Developer"
-                      {...field}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="jobDescription"
-              render={({ field }) => (
-                <FormItem className="w-full space-y-4">
-                  <div className="w-full flex items-center justify-between">
-                    <FormLabel>Job Description</FormLabel>
-                    <FormMessage className="text-sm" />
-                  </div>
-                  <FormControl>
-                    <Textarea
-                      className="h-12"
-                      disabled={isLoading}
-                      placeholder="eg:- describe the job requirements"
-                      {...field}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="requiredExperience"
-              render={({ field }) => (
-                <FormItem className="w-full space-y-4">
-                  <div className="w-full flex items-center justify-between">
-                    <FormLabel>Required Years of Experience</FormLabel>
-                    <FormMessage className="text-sm" />
-                  </div>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      className="h-12"
-                      disabled={isLoading}
-                      placeholder="eg:- 5 Years"
-                      {...field}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="requiredTechStack"
-              render={({ field }) => (
-                <FormItem className="w-full space-y-4">
-                  <div className="w-full flex items-center justify-between">
-                    <FormLabel>Required Tech Stack</FormLabel>
-                    <FormMessage className="text-sm" />
-                  </div>
-                  <FormControl>
-                    <Textarea
-                      className="h-12"
-                      disabled={isLoading}
-                      placeholder="eg:- React, TypeScript, Node.js"
-                      {...field}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-          </div>
-
-          <Separator className="my-4" />
-
-          {/* Candidate Profile Section */}
-          <div className="w-full space-y-4">
-            <h3 className="text-lg font-semibold">Candidate Profile</h3>
-            
-            <FormField
-              control={form.control}
-              name="candidateProfile.resumeFileName"
-              render={({ field: { onChange, value, ...field } }) => (
-                <FormItem className="w-full space-y-4">
-                  <div className="w-full flex items-center justify-between">
-                    <FormLabel>Resume</FormLabel>
-                    <FormMessage className="text-sm" />
-                  </div>
-                  <FormControl>
-                    <div className="flex items-center gap-4">
+                    <FormControl>
                       <Input
-                        type="file"
-                        accept=".pdf,.doc,.docx"
-                        className="h-12"
-                        disabled={isLoading || isParsingResume}
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            onChange(file.name);
-                            await handleResumeUpload(file);
-                          }
-                        }}
+                        className="h-11"
+                        disabled={isLoading}
+                        placeholder="e.g. Full Stack Developer"
                         {...field}
                       />
-                      {value && (
-                        <span className="text-sm text-gray-500">
-                          {value}
-                        </span>
-                      )}
-                      {isParsingResume && (
-                        <Loader className="h-4 w-4 animate-spin" />
-                      )}
-                    </div>
-                  </FormControl>
-                </FormItem>
-              )}
-            />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <FormField
-              control={form.control}
-              name="candidateProfile.position"
-              render={({ field }) => (
-                <FormItem className="w-full space-y-4">
-                  <div className="w-full flex items-center justify-between">
-                    <FormLabel>Current Position</FormLabel>
-                    <FormMessage className="text-sm" />
-                  </div>
-                  <FormControl>
-                    <Input
-                      className="h-12"
-                      disabled={isLoading}
-                      placeholder="eg:- Senior Software Engineer"
-                      {...field}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
+              <FormField
+                control={form.control}
+                name="requiredExperience"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Required Years of Experience</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        className="h-11"
+                        disabled={isLoading}
+                        placeholder="e.g. 5"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
-            <FormField
-              control={form.control}
-              name="candidateProfile.latestCompany"
-              render={({ field }) => (
-                <FormItem className="w-full space-y-4">
-                  <div className="w-full flex items-center justify-between">
-                    <FormLabel>Latest Company</FormLabel>
-                    <FormMessage className="text-sm" />
-                  </div>
-                  <FormControl>
-                    <Input
-                      className="h-12"
-                      disabled={isLoading}
-                      placeholder="eg:- Google, Microsoft, Amazon"
-                      {...field}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
+            <div className="mt-6">
+              <FormField
+                control={form.control}
+                name="jobDescription"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Job Description</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        className="min-h-[120px] resize-none"
+                        disabled={isLoading}
+                        placeholder="Describe the job requirements, responsibilities, and qualifications..."
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
-            <FormField
-              control={form.control}
-              name="candidateProfile.experience"
-              render={({ field }) => (
-                <FormItem className="w-full space-y-4">
-                  <div className="w-full flex items-center justify-between">
-                    <FormLabel>Years of Experience</FormLabel>
-                    <FormMessage className="text-sm" />
-                  </div>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      className="h-12"
-                      disabled={isLoading}
-                      placeholder="eg:- 5 Years"
-                      {...field}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="candidateProfile.education"
-              render={({ field }) => (
-                <FormItem className="w-full space-y-4">
-                  <div className="w-full flex items-center justify-between">
-                    <FormLabel>Education</FormLabel>
-                    <FormMessage className="text-sm" />
-                  </div>
-                  <FormControl>
-                    <Input
-                      className="h-12"
-                      disabled={isLoading}
-                      placeholder="eg:- B.Tech in Computer Science from MIT"
-                      {...field}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="candidateProfile.techStack"
-              render={({ field }) => (
-                <FormItem className="w-full space-y-4">
-                  <div className="w-full flex items-center justify-between">
-                    <FormLabel>Technical Skills</FormLabel>
-                    <FormMessage className="text-sm" />
-                  </div>
-                  <FormControl>
-                    <Textarea
-                      className="h-12"
-                      disabled={isLoading}
-                      placeholder="eg:- React, TypeScript, Node.js, AWS"
-                      {...field}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="candidateProfile.projects"
-              render={({ field }) => (
-                <FormItem className="w-full space-y-4">
-                  <div className="w-full flex items-center justify-between">
-                    <FormLabel>Notable Projects</FormLabel>
-                    <FormMessage className="text-sm" />
-                  </div>
-                  <FormControl>
-                    <Textarea
-                      className="h-24"
-                      disabled={isLoading}
-                      placeholder="eg:- Briefly describe your key projects, their impact, and your role"
-                      {...field}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="candidateProfile.description"
-              render={({ field }) => (
-                <FormItem className="w-full space-y-4">
-                  <div className="w-full flex items-center justify-between">
-                    <FormLabel>Experience Summary</FormLabel>
-                    <FormMessage className="text-sm" />
-                  </div>
-                  <FormControl>
-                    <Textarea
-                      className="h-24"
-                      disabled={isLoading}
-                      placeholder="eg:- Brief summary of your experience and expertise"
-                      {...field}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
+            <div className="mt-6">
+              <FormField
+                control={form.control}
+                name="requiredTechStack"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Required Tech Stack</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        className="min-h-[100px] resize-none"
+                        disabled={isLoading}
+                        placeholder="List the required technologies, frameworks, and tools (comma-separated)..."
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
           </div>
 
-          <div className="w-full flex items-center justify-end gap-6">
+          <Separator />
+
+          {/* Candidate Profile Section */}
+          <div className="bg-card rounded-lg p-6 shadow-sm border">
+            <h3 className="text-lg font-semibold mb-6">Candidate Profile</h3>
+            
+            {/* Resume Upload Section */}
+            <div className="mb-6">
+              <FormField
+                control={form.control}
+                name="candidateProfile.resumeFileName"
+                render={({ field: { onChange, value, ...field } }) => (
+                  <FormItem>
+                    <FormLabel>Resume</FormLabel>
+                    <FormControl>
+                      <div className="flex items-center gap-4">
+                        <div className="flex-1">
+                          <Input
+                            type="file"
+                            accept=".pdf,.doc,.docx"
+                            className="h-11"
+                            disabled={isLoading || isParsingResume}
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                onChange(file.name);
+                                await handleResumeUpload(file);
+                              }
+                            }}
+                            {...field}
+                          />
+                        </div>
+                        {value && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <span className="truncate max-w-[200px]">{value}</span>
+                            {isParsingResume && (
+                              <Loader className="h-4 w-4 animate-spin" />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <FormField
+                control={form.control}
+                name="candidateProfile.position"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Current Position</FormLabel>
+                    <FormControl>
+                      <Input
+                        className="h-11"
+                        disabled={isLoading}
+                        placeholder="e.g. Senior Frontend Developer"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="candidateProfile.experience"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Years of Experience</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        className="h-11"
+                        disabled={isLoading}
+                        placeholder="e.g. 5"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="mt-6">
+              <FormField
+                control={form.control}
+                name="candidateProfile.techStack"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Technical Skills</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        className="min-h-[100px] resize-none"
+                        disabled={isLoading}
+                        placeholder="List your technical skills (comma-separated)..."
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="mt-6">
+              <FormField
+                control={form.control}
+                name="candidateProfile.latestCompany"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Latest Company</FormLabel>
+                    <FormControl>
+                      <Input
+                        className="h-11"
+                        disabled={isLoading}
+                        placeholder="e.g. Google, Microsoft, Amazon"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="mt-6">
+              <FormField
+                control={form.control}
+                name="candidateProfile.projects"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notable Projects</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        className="min-h-[120px] resize-none"
+                        disabled={isLoading}
+                        placeholder="Briefly describe your key projects, their impact, and your role..."
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="mt-6">
+              <FormField
+                control={form.control}
+                name="candidateProfile.education"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Education</FormLabel>
+                    <FormControl>
+                      <Input
+                        className="h-11"
+                        disabled={isLoading}
+                        placeholder="e.g. B.Tech in Computer Science from MIT"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="mt-6">
+              <FormField
+                control={form.control}
+                name="candidateProfile.description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Experience Summary</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        className="min-h-[120px] resize-none"
+                        disabled={isLoading}
+                        placeholder="Brief summary of your experience, expertise, and achievements..."
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-4">
             <Button
               type="reset"
-              size={"sm"}
-              variant={"outline"}
+              variant="outline"
               disabled={isSubmitting || isLoading}
+              className="min-w-[100px]"
             >
               Reset
             </Button>
             <Button
               type="submit"
-              size={"sm"}
               disabled={isSubmitting || !isValid || isLoading}
+              className="min-w-[120px]"
             >
               {isLoading ? (
-                <Loader className="text-gray-50 animate-spin" />
+                <>
+                  <Loader className="mr-2 h-4 w-4 animate-spin" />
+                  Creating...
+                </>
               ) : (
                 actions
               )}

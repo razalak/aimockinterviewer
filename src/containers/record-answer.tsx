@@ -30,6 +30,7 @@ import { db, storage } from "@/config/firebase.config";
 import { useAuth } from "@clerk/clerk-react";
 import { useParams } from "react-router-dom";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import * as faceapi from 'face-api.js';
 
 // TypeScript interfaces for the Web Speech API
 interface SpeechRecognitionEvent extends Event {
@@ -79,8 +80,6 @@ declare global {
 
 interface RecordAnswerProps {
   question: { question: string; answer: string };
-  isWebCam: boolean;
-  setIsWebCam: (value: boolean) => void;
 }
 
 interface AIResponse {
@@ -95,8 +94,6 @@ interface SavedMedia {
 
 export const RecordAnswer = ({
   question,
-  isWebCam,
-  setIsWebCam,
 }: RecordAnswerProps) => {
   const webcamRef = useRef<WebCam>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -129,6 +126,11 @@ export const RecordAnswer = ({
     correctAnswer: string;
     userAnswer: string;
     recordingUrl?: string;
+    videoAnalysis: Array<{
+      confidence: number;
+      expressions: Record<string, number>;
+      timestamp: number;
+    }> | null;
   }[]>([]);
 
   // Add these state variables for interview completion
@@ -563,24 +565,20 @@ export const RecordAnswer = ({
         mediaStream.getTracks().forEach(track => track.stop());
       }
 
-      // Request both audio and video
+      // Request both video and audio
       const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: videoConstraints,
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-        },
-        video: isWebCam ? {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: "user",
-        } : false
+        }
       });
       
       setMediaStream(stream);
       setMicPermission('granted');
       
-      // Create a new MediaRecorder instance
+      // Create a new MediaRecorder instance for both video and audio
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported('video/webm') 
           ? 'video/webm' 
@@ -595,25 +593,17 @@ export const RecordAnswer = ({
 
       mediaRecorderRef.current = mediaRecorder;
       
-      if (isWebCam) {
-        setIsWebCam(true);
-        toast.success("Camera and Microphone Access Granted", {
-          description: "You can now start recording your answer with video.",
-        });
-      } else {
-        toast.success("Microphone Access Granted", {
-          description: "You can now start recording your answer.",
-        });
-      }
+      toast.success("Camera and Microphone Access Granted", {
+        description: "You can now start recording your answer.",
+      });
       
       return true;
     } catch (error) {
       console.error('Error accessing media devices:', error);
       setMicPermission('denied');
       setMediaStream(null);
-      setIsWebCam(false);
       toast.error("Media Access Denied", {
-        description: "Please allow microphone and camera access to record your answer.",
+        description: "Please allow camera and microphone access to record your answer.",
       });
       return false;
     } finally {
@@ -630,21 +620,20 @@ export const RecordAnswer = ({
 
   const handleUserMedia = useCallback((stream: MediaStream) => {
     setWebcamError(null);
-    setIsWebCam(true);
     setMediaStream(stream);
     toast.success("Camera Connected", {
       description: "Your webcam has been successfully connected.",
     });
-  }, [setIsWebCam]);
+  }, []);
 
   const handleUserMediaError = useCallback((error: string | DOMException) => {
     console.error("Webcam error:", error);
     setWebcamError(error.toString());
-    setIsWebCam(false);
+    setMediaStream(null);
     toast.error("Camera Error", {
       description: "Failed to access webcam. Please check your permissions.",
     });
-  }, [setIsWebCam]);
+  }, []);
 
   // Function to help reset permissions
   const resetPermissions = () => {
@@ -730,87 +719,19 @@ export const RecordAnswer = ({
     
     try {
       // Create recording blob
-      const recordingType = isWebCam ? 'video/webm' : 'audio/webm';
+      const recordingType = 'video/webm';
       const recordingBlob = new Blob(recordedChunks, { type: recordingType });
       
-      if (isWebCam) {
-        // If we have video, store video blob and extract audio
-        setRecordedMedia(prev => ({
-          ...prev,
-          videoBlob: recordingBlob
-        }));
-        
-        // For videos, extract the audio track for separate audio storage
-        extractAudioFromVideo(recordingBlob);
-      } else {
-        // If audio-only recording, just store audio blob
-        setRecordedMedia(prev => ({
-          ...prev,
-          audioBlob: recordingBlob
-        }));
-      }
+      setRecordedMedia(prev => ({
+        ...prev,
+        videoBlob: recordingBlob,
+        audioBlob: recordingBlob // We'll use the same blob since it contains both audio and video
+      }));
     } catch (error) {
       console.error("Error processing recording:", error);
       toast.error("Processing Error", {
         description: "Failed to process the recording.",
       });
-    }
-  };
-  
-  // Function to extract audio from video
-  const extractAudioFromVideo = async (videoBlob: Blob) => {
-    try {
-      const videoUrl = URL.createObjectURL(videoBlob);
-      const video = document.createElement('video');
-      video.src = videoUrl;
-      
-      // Create an audio context
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const mediaSource = audioContext.createMediaElementSource(video);
-      const destination = audioContext.createMediaStreamDestination();
-      mediaSource.connect(destination);
-      
-      // Create a media recorder for the audio stream
-      const audioRecorder = new MediaRecorder(destination.stream);
-      const audioChunks: Blob[] = [];
-      
-      audioRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          audioChunks.push(e.data);
-        }
-      };
-      
-      audioRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-        setRecordedMedia(prev => ({
-          ...prev,
-          audioBlob: audioBlob
-        }));
-      };
-      
-      // Start playback and recording
-      audioRecorder.start();
-      video.play();
-      
-      // Stop when video ends
-      video.onended = () => {
-        audioRecorder.stop();
-        video.remove();
-        URL.revokeObjectURL(videoUrl);
-      };
-      
-      // If video doesn't have duration info yet, manually stop after a reasonable time
-      setTimeout(() => {
-        if (audioRecorder.state === 'recording') {
-          video.pause();
-          audioRecorder.stop();
-          video.remove();
-          URL.revokeObjectURL(videoUrl);
-        }
-      }, 1000); // Short timeout since we just need the audio tracks, not a full playback
-      
-    } catch (error) {
-      console.error("Error extracting audio:", error);
     }
   };
   
@@ -829,24 +750,10 @@ export const RecordAnswer = ({
           await uploadBytes(videoRef, recordedMedia.videoBlob);
           const videoUrl = await getDownloadURL(videoRef);
           mediaUrls.videoUrl = videoUrl;
+          mediaUrls.audioUrl = videoUrl; // Use the same URL since it contains both audio and video
           console.log("Video uploaded successfully:", videoUrl);
         } catch (videoError) {
           console.error("Error uploading video:", videoError);
-        }
-      }
-      
-      // Upload audio if available
-      if (recordedMedia.audioBlob) {
-        console.log("Uploading audio blob:", recordedMedia.audioBlob.size, "bytes");
-        const audioRef = ref(storage, `recordings/${userId}/${answerId}/audio.webm`);
-        
-        try {
-          await uploadBytes(audioRef, recordedMedia.audioBlob);
-          const audioUrl = await getDownloadURL(audioRef);
-          mediaUrls.audioUrl = audioUrl;
-          console.log("Audio uploaded successfully:", audioUrl);
-        } catch (audioError) {
-          console.error("Error uploading audio:", audioError);
         }
       }
       
@@ -1009,7 +916,6 @@ export const RecordAnswer = ({
       return;
     }
 
-    // Check if user is authenticated
     if (!userId) {
       toast.error("Authentication Error", {
         description: "You must be logged in to save answers.",
@@ -1019,7 +925,6 @@ export const RecordAnswer = ({
       return;
     }
 
-    // Check if interview ID exists
     if (!interviewId) {
       toast.error("Interview Error", {
         description: "Invalid interview session.",
@@ -1029,29 +934,19 @@ export const RecordAnswer = ({
       return;
     }
 
-    const currentQuestion = question.question;
-
     try {
-      console.log("Saving answer for question:", currentQuestion);
-      console.log("User ID:", userId);
-      console.log("Interview ID:", interviewId);
-
-      // Show saving toast
       toast.loading("Saving your answer...", { id: "saving-answer" });
 
-      // Query Firebase to check if the user answer already exists for this question
       const userAnswerQuery = query(
         collection(db, "userAnswers"),
         where("userId", "==", userId),
-        where("question", "==", currentQuestion),
+        where("question", "==", question.question),
         where("mockIdRef", "==", interviewId)
       );
 
       const querySnap = await getDocs(userAnswerQuery);
 
-      // If the user already answered the question, don't save it again
       if (!querySnap.empty) {
-        console.log("Answer already exists:", querySnap.size);
         toast.dismiss("saving-answer");
         toast.info("Already Answered", {
           description: "You have already answered this question in this interview.",
@@ -1061,56 +956,47 @@ export const RecordAnswer = ({
         return;
       }
 
-      // Prepare the answer data
+      // Include video analysis in the answer data
       const answerData = {
         mockIdRef: interviewId,
         question: question.question,
         correct_ans: question.answer,
         user_ans: userAnswer,
-        feedback: "", // No individual feedback
+        feedback: "",
         rating: 0,
         userId,
-        hasRecording: false, // Will update if we have recordings
+        hasRecording: false,
+        videoAnalysis: null,
         createdAt: serverTimestamp(),
       };
 
-      console.log("Saving answer data:", answerData);
-
-      // Save the answer
       const questionAnswerRef = await addDoc(collection(db, "userAnswers"), answerData);
       const id = questionAnswerRef.id;
 
-      // Update with the ID
       await updateDoc(doc(db, "userAnswers", id), {
         id,
         updatedAt: serverTimestamp(),
       });
 
-      console.log("Answer saved with ID:", id);
-
-      // Handle recordings if available
-      const hasRecordings = recordedMedia.videoBlob || recordedMedia.audioBlob;
-      let mediaUrls: MediaUrls = {};
+      // Handle recordings
+      const hasRecordings = recordedMedia.audioBlob;
+      let mediaUrls = {};
 
       if (hasRecordings) {
         toast.loading("Uploading recording...", { id: "upload-recording" });
         
         try {
-          // Update the document to indicate it has recordings
           await updateDoc(doc(db, "userAnswers", id), {
             hasRecording: true,
           });
 
-          // Upload the recordings
           mediaUrls = await uploadMediaToStorage(id);
           
-          // Update the document with media URLs
           await updateDoc(doc(db, "userAnswers", id), {
             mediaUrls,
             updatedAt: serverTimestamp(),
           });
           
-          console.log("Media uploaded successfully:", mediaUrls);
           toast.dismiss("upload-recording");
         } catch (uploadError) {
           console.error("Error uploading media:", uploadError);
@@ -1121,15 +1007,14 @@ export const RecordAnswer = ({
         }
       }
 
-      // Store the answer locally for end-of-interview feedback
       setSavedAnswers(prev => [...prev, {
         question: question.question,
         correctAnswer: question.answer,
         userAnswer: userAnswer,
-        recordingUrl: hasRecordings ? (mediaUrls as MediaUrls).audioUrl || (mediaUrls as MediaUrls).videoUrl : undefined
+        recordingUrl: hasRecordings ? (mediaUrls as MediaUrls).audioUrl : undefined,
+        videoAnalysis: null,
       }]);
 
-      // Dismiss saving toast and show success
       toast.dismiss("saving-answer");
       toast.success("Answer Saved", { 
         description: hasRecordings 
@@ -1137,7 +1022,7 @@ export const RecordAnswer = ({
           : "Your answer has been saved." 
       });
 
-      // Reset state for next question
+      // Reset states
       setUserAnswer("");
       setAudioTranscript("");
       setRecordedChunks([]);
@@ -1167,13 +1052,11 @@ export const RecordAnswer = ({
     
     if (answerData?.hasRecording && answerData?.mediaUrls) {
       // Access recording URLs
-      const videoUrl = answerData.mediaUrls.videoUrl;
       const audioUrl = answerData.mediaUrls.audioUrl;
       
       return {
         answer: answerData,
         recordings: {
-          video: videoUrl,
           audio: audioUrl
         }
       };
@@ -1378,7 +1261,8 @@ Format your response as JSON with these fields:
             question: data.question,
             correctAnswer: data.correct_ans,
             userAnswer: data.user_ans,
-            recordingUrl: data.mediaUrls?.audioUrl || data.mediaUrls?.videoUrl
+            recordingUrl: data.mediaUrls?.audioUrl,
+            videoAnalysis: data.videoAnalysis,
           };
         });
         
@@ -1392,77 +1276,6 @@ Format your response as JSON with these fields:
     loadSavedAnswers();
   }, [userId, interviewId]);
 
-  // Update the video toggle functionality
-  const toggleVideo = async () => {
-    if (isRecording) {
-      stopRecording();
-    }
-
-    setIsWebCam(!isWebCam);
-    setIsInitializing(true);
-
-    try {
-      // Stop existing media stream if any
-      if (mediaStream) {
-        mediaStream.getTracks().forEach(track => track.stop());
-        setMediaStream(null);
-      }
-
-      if (!isWebCam) {
-        // If turning video on, request new media
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: "user",
-          }
-        });
-        
-        setMediaStream(stream);
-        setMicPermission('granted');
-        
-        // Create a new MediaRecorder instance
-        const mediaRecorder = new MediaRecorder(stream, {
-          mimeType: MediaRecorder.isTypeSupported('video/webm') 
-            ? 'video/webm' 
-            : 'video/mp4'
-        });
-        
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data && event.data.size > 0) {
-            setRecordedChunks(prev => [...prev, event.data]);
-          }
-        };
-
-        mediaRecorderRef.current = mediaRecorder;
-        
-        toast.success("Camera Connected", {
-          description: "Your webcam has been successfully connected.",
-        });
-      } else {
-        // If turning video off, just stop the stream
-        setWebcamError(null);
-        toast.success("Camera Disconnected", {
-          description: "Your webcam has been turned off.",
-        });
-      }
-    } catch (error: unknown) {
-      console.error('Error toggling video:', error);
-      setWebcamError(error instanceof Error ? error.message : String(error));
-      setIsWebCam(false);
-      toast.error("Camera Error", {
-        description: "Failed to access webcam. Please check your permissions.",
-      });
-    } finally {
-      setIsInitializing(false);
-    }
-  };
-
   return (
     <div className="w-full flex flex-col items-center gap-8 mt-4">
       {/* Save modal */}
@@ -1473,52 +1286,26 @@ Format your response as JSON with these fields:
         loading={loading}
       />
 
-      {/* Camera display */}
-      <div className="w-full h-[400px] md:w-96 flex flex-col items-center justify-center border p-4 bg-gray-50 rounded-md relative">
-        {isWebCam ? (
-          <WebCam
-            ref={webcamRef}
-            audio={false} // We handle audio separately
-            muted={true}
-            screenshotFormat="image/jpeg"
-            videoConstraints={videoConstraints}
-            onUserMedia={handleUserMedia}
-            onUserMediaError={handleUserMediaError}
-            className="w-full h-full object-cover rounded-md"
-          />
-        ) : (
-          <div className="flex flex-col items-center gap-2">
-            <WebcamIcon className="min-w-24 min-h-24 text-muted-foreground" />
-            {webcamError && (
-              <p className="text-sm text-red-500 text-center">
-                Camera access error. Please check your permissions.
-              </p>
-            )}
-          </div>
-        )}
+      {/* Webcam display */}
+      <div className="relative w-full max-w-2xl aspect-video rounded-lg overflow-hidden bg-gray-900">
+        <WebCam
+          ref={webcamRef}
+          audio={false}
+          videoConstraints={videoConstraints}
+          onUserMedia={handleUserMedia}
+          onUserMediaError={handleUserMediaError}
+          className="w-full h-full object-cover"
+        />
         {isRecording && (
-          <div className="absolute top-2 right-2 flex items-center gap-1 bg-red-500 text-white px-2 py-1 rounded-md text-xs">
+          <div className="absolute top-4 right-4 flex items-center gap-2 bg-red-500 text-white px-3 py-1 rounded-full">
             <span className="animate-pulse h-2 w-2 bg-white rounded-full"></span>
-            Recording
+            <span className="text-xs">Recording</span>
           </div>
         )}
       </div>
 
       {/* Action buttons group */}
-      <div className="flex items-center justify-center gap-3">
-        <TooltipButton
-          content={isWebCam ? "Turn Off Camera" : "Turn On Camera"}
-          icon={
-            isWebCam ? (
-              <VideoOff className="min-w-5 min-h-5" />
-            ) : (
-              <Video className="min-w-5 min-h-5" />
-            )
-          }
-          onClick={toggleVideo}
-          disbaled={isInitializing}
-        />
-
+      <div className="flex gap-4">
         <TooltipButton
           content={
             isInitializing
@@ -1557,7 +1344,6 @@ Format your response as JSON with these fields:
             )
           }
           onClick={() => {
-            // Only open the save modal if we have an answer to save
             if (userAnswer && userAnswer.trim().length > 0) {
               setOpen(true);
             } else {
@@ -1573,6 +1359,7 @@ Format your response as JSON with these fields:
       {/* Answer display */}
       <div className="w-full mt-4 p-4 border rounded-md bg-gray-50">
         <h2 className="text-lg font-semibold">Your Answer:</h2>
+        
         {isInitializing ? (
           <p className="text-sm text-blue-500 mt-2">
             Initializing media devices...
@@ -1580,7 +1367,7 @@ Format your response as JSON with these fields:
         ) : permissionBlocked ? (
           <div className="text-sm text-red-500 mt-2">
             <p>
-              Microphone and camera access are blocked by your browser.
+              Microphone access is blocked by your browser.
             </p>
             <button 
               onClick={resetPermissions}
@@ -1619,13 +1406,13 @@ Format your response as JSON with these fields:
               </div>
             )}
             
-            {recordedMedia.videoBlob || recordedMedia.audioBlob ? (
+            {recordedMedia.audioBlob && !isRecording && (
               <div className="mt-3 flex items-center gap-2">
                 <span className="text-xs text-green-600">
-                  {isWebCam ? "Video" : "Audio"} recording saved and ready to submit
+                  Audio recording saved and ready to submit
                 </span>
               </div>
-            ) : null}
+            )}
           </div>
         )}
       </div>
@@ -1635,11 +1422,11 @@ Format your response as JSON with these fields:
         <div className="w-full mt-4 p-4 border rounded-md bg-white shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold">Your Answer</h2>
-            {recordedMedia.videoBlob || recordedMedia.audioBlob ? (
+            {recordedMedia.audioBlob && (
               <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
-                {isWebCam ? "Video" : "Audio"} recording saved
+                Audio recording saved
               </span>
-            ) : null}
+            )}
           </div>
           
           <div className="mt-2">
@@ -1667,7 +1454,7 @@ Format your response as JSON with these fields:
           </div>
         </div>
       )}
-      
+
       {/* Add a Complete Interview button if there are saved answers */}
       {savedAnswers.length > 0 && (
         <div className="w-full mt-6 p-4 bg-purple-50 border border-purple-200 rounded-lg">
