@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { TooltipButton } from "@/components/tooltip-button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Volume2, VolumeX } from "lucide-react";
-import { RecordAnswer } from "./record-answer";
+import { RecordAnswer } from "@/containers/record-answer";
 
 interface QuestionSectionProps {
   questions: { question: string; answer: string }[];

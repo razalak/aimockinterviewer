@@ -7,10 +7,11 @@ import { db } from "@/config/firebase.config";
 import { Interview } from "@/types";
 import { useAuth } from "@clerk/clerk-react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
-import { Plus } from "lucide-react";
+import { Plus, Calendar, Clock, Target, Users, Newspaper, MessageSquare, FileText } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const Dashboard = () => {
   const [interviews, setInterviews] = useState<Interview[]>([]);
@@ -37,8 +38,8 @@ export const Dashboard = () => {
       },
       (error) => {
         console.log("Error on fetching : ", error);
-        toast.error("Error..", {
-          description: "SOmething went wrong.. Try again later..",
+        toast.error("Error", {
+          description: "Something went wrong. Please try again later.",
         });
         setLoading(false);
       }
@@ -49,61 +50,113 @@ export const Dashboard = () => {
     return () => unsubscribe();
   }, [userId]);
 
+  const totalInterviews = interviews.length;
+  const totalQuestions = interviews.reduce((acc, interview) => acc + (interview.questions?.length || 0), 0);
+  const totalFeedback = interviews.reduce((acc, interview) => acc + (interview.feedback?.length || 0), 0);
+  const totalTimeSpent = interviews.reduce((acc, interview) => acc + (interview.timeSpent || 0), 0);
+
+  const stats = [
+    {
+      title: "Total Interviews",
+      value: totalInterviews,
+      icon: <Newspaper className="h-4 w-4" />,
+    },
+    {
+      title: "Total Questions",
+      value: totalQuestions,
+      icon: <MessageSquare className="h-4 w-4" />,
+    },
+    {
+      title: "Total Feedback",
+      value: totalFeedback,
+      icon: <FileText className="h-4 w-4" />,
+    },
+    {
+      title: "Time Spent",
+      value: `${Math.round(totalTimeSpent / 60)} min`,
+      icon: <Clock className="h-4 w-4" />,
+    },
+  ];
+
   return (
-    <>
+    <div className="space-y-8">
       <div className="flex w-full items-center justify-between">
         {/* heading */}
         <Headings
           title="Dashboard"
-          description="Create and start you AI Mock interview"
+          description="Create and start your AI Mock interview"
         />
         {/* action button */}
-
         <Link to={"/generate/create"}>
-          <Button size={"sm"}>
-            <Plus className="min-w-5 min-h-5 mr-1" />
-            Add new
+          <Button size={"lg"} className="bg-primary hover:bg-primary/90">
+            <Plus className="min-w-5 min-h-5 mr-2" />
+            Create New Interview
           </Button>
         </Link>
       </div>
 
-      <Separator className="my-8" />
+      {/* Stats Section */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {stats.map((stat) => (
+          <Card key={stat.title}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">{stat.title}</CardTitle>
+              <div className="flex items-center justify-end text-sm font-medium text-muted-foreground">
+                {stat.icon}
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stat.value}</div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
-      <div className="md:grid md:grid-cols-3 gap-3 py-4">
+      <Separator />
+
+      {/* Interviews Section */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Your Interviews</h2>
+          <p className="text-sm text-muted-foreground">
+            {interviews.length} interview{interviews.length !== 1 ? 's' : ''} created
+          </p>
+        </div>
+
         {loading ? (
-          Array.from({ length: 6 }).map((_, index) => (
-            <Skeleton key={index} className="h-24 md:h-32 rounded-md" />
-          ))
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <Skeleton key={index} className="h-48 rounded-xl" />
+            ))}
+          </div>
         ) : interviews.length > 0 ? (
-          interviews.map((interview) => (
-            <InterviewPin key={interview.id} data={interview} />
-          ))
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {interviews.map((interview) => (
+              <InterviewPin key={interview.id} data={interview} />
+            ))}
+          </div>
         ) : (
-          <div className="md:col-span-3 w-full flex flex-grow items-center justify-center h-96 flex-col">
+          <div className="flex flex-col items-center justify-center min-h-[60vh] bg-muted/50 rounded-xl p-8">
             <img
               src="/svg/not-found.svg"
-              className="w-44 h-44 object-contain"
-              alt=""
+              className="w-48 h-48 object-contain mb-6"
+              alt="No interviews found"
             />
-
-            <h2 className="text-lg font-semibold text-muted-foreground">
-              No Data Found
+            <h2 className="text-2xl font-semibold text-muted-foreground mb-2">
+              No Interviews Found
             </h2>
-
-            <p className="w-full md:w-96 text-center text-sm text-neutral-400 mt-4">
-              There is no available data to show. Please add some new mock
-              interviews
+            <p className="text-center text-muted-foreground max-w-md mb-6">
+              Start your interview preparation journey by creating your first mock interview
             </p>
-
-            <Link to={"/generate/create"} className="mt-4">
-              <Button size={"sm"}>
-                <Plus className="min-w-5 min-h-5 mr-1" />
-                Add New
+            <Link to={"/generate/create"}>
+              <Button size={"lg"} className="bg-primary hover:bg-primary/90">
+                <Plus className="min-w-5 min-h-5 mr-2" />
+                Create Your First Interview
               </Button>
             </Link>
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 };
