@@ -213,8 +213,8 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
       if (!data.jobDescription?.trim()) {
         validationErrors.push({ field: "Job Description", message: "Please enter the job description" });
       }
-      if (!data.requiredExperience || data.requiredExperience < 0) {
-        validationErrors.push({ field: "Required Experience", message: "Please enter valid years of experience" });
+      if (data.requiredExperience === undefined || data.requiredExperience < 0) {
+        validationErrors.push({ field: "Required Experience", message: "Please enter valid years of experience (0 or greater)" });
       }
       if (!data.requiredTechStack?.trim()) {
         validationErrors.push({ field: "Required Tech Stack", message: "Please enter the required tech stack" });
@@ -224,8 +224,8 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
       if (!data.candidateProfile.position?.trim()) {
         validationErrors.push({ field: "Current Position", message: "Please enter your current position" });
       }
-      if (!data.candidateProfile.experience || data.candidateProfile.experience < 0) {
-        validationErrors.push({ field: "Years of Experience", message: "Please enter valid years of experience" });
+      if (data.candidateProfile.experience === undefined || data.candidateProfile.experience < 0) {
+        validationErrors.push({ field: "Years of Experience", message: "Please enter valid years of experience (0 or greater)" });
       }
       if (!data.candidateProfile.techStack?.trim()) {
         validationErrors.push({ field: "Technical Skills", message: "Please enter your technical skills" });
@@ -397,10 +397,16 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
                     <FormControl>
                       <Input
                         type="number"
+                        min="0"
+                        step="1"
                         className="h-11"
                         disabled={isLoading}
                         placeholder="e.g. 5"
                         {...field}
+                        onChange={(e) => {
+                          const value = Math.max(0, parseInt(e.target.value) || 0);
+                          field.onChange(value);
+                        }}
                       />
                     </FormControl>
                     <FormMessage />
@@ -529,10 +535,16 @@ export const FormMockInterview = ({ initialData }: FormMockInterview) => {
                     <FormControl>
                       <Input
                         type="number"
+                        min="0"
+                        step="1"
                         className="h-11"
                         disabled={isLoading}
                         placeholder="e.g. 5"
                         {...field}
+                        onChange={(e) => {
+                          const value = Math.max(0, parseInt(e.target.value) || 0);
+                          field.onChange(value);
+                        }}
                       />
                     </FormControl>
                     <FormMessage />
